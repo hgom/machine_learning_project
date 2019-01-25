@@ -1,0 +1,96 @@
+---
+title: "Practical machine learning Project"
+author: "Hans Gommers"
+date: "2019-01-23"
+output: html_document
+---
+
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset).
+
+## Purpose
+The goal of this project is to construct a prediction model to classify the manner in which they did the exercise. This is the classe variable. Every other variable may be used for this model. 
+
+## loading libraries
+```{r echo=FALSE, message=FALSE}
+library(gbm)
+library(caret)
+library(doParallel)
+library(rattle)
+```
+
+## Fetching the data
+```{r}
+training.data <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", header = TRUE, na.strings = c("", "NA"))
+testing.data <- read.csv("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", header = TRUE, na.strings = c("", "NA"))
+```
+## Cleaning the data
+1. remove variables which includes to many NA values
+2. remove variables which does not contain activity related data and should not be used in any prediction model
+3. remove for the test set the same columns as in training set if exist and keep the problem id
+```{r}
+training.data <- subset(training.data, select=-c(X,user_name,raw_timestamp_part_1,raw_timestamp_part_2,cvtd_timestamp,new_window,num_window))
+testing.data <- subset(testing.data, select=-c(X,user_name,raw_timestamp_part_1,raw_timestamp_part_2,cvtd_timestamp,new_window,num_window))
+
+non.na.vars <- names(training.data[,colSums(is.na(training.data))==0])
+training.data <- subset(training.data[,non.na.vars])
+
+testing.data <- subset(testing.data, select=names(testing.data) %in% c(non.na.vars, "problem_id"))
+```
+
+## splitting the trainings data in training set and test set
+```{r}
+set.seed(98765)
+inTrain <- createDataPartition(training.data$classe, p=0.7, list=FALSE)
+train.set <- training.data[inTrain,]
+test.set <- training.data[-inTrain,]
+```
+
+# Prediction models
+Three models will be tested
+1. rpart model
+2. gradient model
+3. random forest model
+
+## rpart
+```{r fig.height = 8}
+rpart.model <- train(classe ~ ., data=train.set, method="rpart")
+rpart.prediction <- predict(rpart.model, newdata = test.set)
+fancyRpartPlot(rpart.model$finalModel, main="RPart decision tree")
+confusionMatrix(test.set$classe, rpart.prediction)
+```
+
+Result: The accurancy is +/- 50%
+
+## gradient
+```{r fig.height = 8}
+clusters <- makeCluster(detectCores())
+registerDoParallel(clusters)
+gbm.model <- train(classe ~ ., data=train.set, method="gbm")
+gbm.prediction <- predict(gbm.model, newdata = test.set)
+stopCluster(clusters)
+confusionMatrix(test.set$classe, gbm.prediction)
+plot(varImp(gbm.model))
+```
+
+Result: An accuracy of +/- 96% when max depth = 3 and boosting iterations = 150
+
+## random forest
+```{r fig.height = 8}
+clusters <- makeCluster(detectCores())
+registerDoParallel(clusters)
+rf.model <- train(classe ~ ., data=train.set, method="rf", ntree = 5)
+rf.prediction <- predict(rf.model, newdata = test.set)
+stopCluster(clusters)
+confusionMatrix(test.set$classe, rf.prediction)
+plot(rf.model$finalModel)
+plot(rf.model, main = "Accurancy of RF model by number of predictors")
+print(plot(varImp(rf.model)))
+```
+
+Result: Accuracy of +/- 99% when using 27 predictors.
+
+# conclusions
+1. rpart model has an accurancy of 50% and is not useful
+2. gradient model has an accurancy of 96% this accurancy could be increased if parameters like number of iterations are optimized
+3. random forest delivers the highest accurancy of 99% when 27 predictors are used, more analysis is needed to minimize the number of predictors
